@@ -1,0 +1,183 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            builder-args: --linux
+          - name: Windows
+            os: windows-latest
+            builder-args: --win --x64
+          - name: macOS
+            os: macos-latest
+            builder-args: --mac --x64 --arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build app
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Package installers
+        run: npx electron-builder ${{ matrix.builder-args }} --publish never
+        env:
+          # No code-signing certificates are configured; skip the keychain lookup on macOS.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Build web assets and sync into the Android project
+        run: |
+          npm run build:renderer
+          npx cap sync android
+        env:
+          NODE_ENV: production
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-Android
+          if-no-files-found: error
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  ios:
+    name: iOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - run: npm ci
+
+      - name: Build web assets and sync into the iOS project
+        run: |
+          npm run build:renderer
+          npx cap sync ios
+        env:
+          NODE_ENV: production
+
+      # Apple code signing needs a paid developer account, so this produces an UNSIGNED .ipa.
+      # It can be re-signed and sideloaded (AltStore, Sideloadly, or your own certificate);
+      # for TestFlight/App Store, add signing certificates and a provisioning profile.
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p ipa/Payload
+          cp -R build/ios/Build/Products/Release-iphoneos/App.app ipa/Payload/
+          cd ipa
+          zip -qry Slack-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-iOS
+          if-no-files-found: error
+          path: ipa/Slack-unsigned.ipa
+
+  server:
+    name: Server bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:server
+
+      - name: Upload server bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-server
+          if-no-files-found: error
+          path: dist/server/index.js

@@ -1,0 +1,47 @@
+appId: com.brenninho.slack
+productName: Slack
+copyright: Copyright © 2026 Brenninho
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/main/**
+  - dist/preload/**
+  - dist/renderer/**
+  - build/icon.png
+  - package.json
+  - "!**/*.map"
+
+asar: true
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}
+portable:
+  artifactName: ${productName}-Portable-${version}-${arch}.${ext}
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.social-networking
+  target:
+    - dmg
+    - zip
+
+linux:
+  icon: build/icon.png
+  category: Network;InstantMessaging
+  synopsis: Real-time chat for communities
+  maintainer: Brenninho <Brenninho@users.noreply.github.com>
+  target:
+    - AppImage
+    - deb

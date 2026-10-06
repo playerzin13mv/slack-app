@@ -1,0 +1,13 @@
+{
+  "appId": "com.brenninho.slack",
+  "appName": "Slack",
+  "webDir": "dist/renderer",
+  "backgroundColor": "#1e1f22",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
